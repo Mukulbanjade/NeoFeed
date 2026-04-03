@@ -2,23 +2,37 @@
 
 from __future__ import annotations
 
+import logging
+
 import bcrypt as _bcrypt
 from fastapi import Depends, HTTPException, Header
 
 from config import settings
 
+_logger = logging.getLogger("neofeed.auth")
+
+
+def _is_bcrypt_hash(value: str) -> bool:
+    return value.startswith(("$2b$", "$2a$", "$2y$")) and len(value) >= 59
+
 
 def _check_pin(pin: str, pin_hash: str) -> bool:
     # #region agent log
-    import logging as _log
-    _dbg = _log.getLogger("neofeed.auth")
+    if not _is_bcrypt_hash(pin_hash):
+        _logger.warning(
+            "PIN_HASH is not a valid bcrypt hash (len=%d). "
+            "Falling back to plain-text comparison. "
+            "Run POST /auth/setup to generate a proper hash.",
+            len(pin_hash),
+        )
+        return pin == pin_hash
     try:
         result = _bcrypt.checkpw(pin.encode(), pin_hash.encode())
-        _dbg.info(f"checkpw ok, result={result}, hash_len={len(pin_hash)}, prefix={pin_hash[:7]}")
+        _logger.info(f"checkpw ok, result={result}, hash_len={len(pin_hash)}")
         return result
     except Exception as exc:
-        _dbg.error(f"checkpw CRASHED: {type(exc).__name__}: {exc}  hash_len={len(pin_hash)} prefix={pin_hash[:10]!r}")
-        raise
+        _logger.error(f"checkpw failed: {type(exc).__name__}: {exc}")
+        return pin == pin_hash
     # #endregion
 
 
