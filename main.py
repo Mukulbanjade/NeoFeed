@@ -104,6 +104,30 @@ async def health():
     return {"status": "ok"}
 
 
+# #region agent log — temporary diagnostic (remove after debugging)
+@app.get("/debug/pin-check")
+async def debug_pin_check():
+    """Temporary endpoint to diagnose PIN_HASH issues on Render."""
+    import bcrypt as _bcrypt
+    ph = settings.pin_hash
+    info = {
+        "pin_hash_length": len(ph) if ph else 0,
+        "pin_hash_set": bool(ph),
+        "pin_hash_starts_with_dollar": ph.startswith("$") if ph else None,
+        "pin_hash_prefix": ph[:7] if ph and len(ph) > 7 else ph[:3] if ph else "",
+    }
+    if ph:
+        try:
+            result = _bcrypt.checkpw(b"5585", ph.encode())
+            info["checkpw_result"] = result
+            info["checkpw_error"] = None
+        except Exception as e:
+            info["checkpw_result"] = None
+            info["checkpw_error"] = f"{type(e).__name__}: {e}"
+    return info
+# #endregion
+
+
 @app.post("/admin/scrape")
 async def trigger_scrape():
     """Manually trigger a scrape cycle."""

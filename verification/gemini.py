@@ -68,31 +68,54 @@ Respond with ONLY a JSON object: {{"rating": "...", "reason": "one sentence expl
         return TrustRating.UNVERIFIED
 
 
+def _extractive_fallback(articles: list[RawArticle]) -> dict:
+    """When Gemini is unavailable, return a longer extractive blurb than a bare title."""
+    a = articles[0]
+    body = (a.content or "").strip()
+    if body:
+        snippet = body[:1200] + ("…" if len(body) > 1200 else "")
+        summary = f"{a.title}\n\n{snippet}"
+    else:
+        summary = a.title
+    return {
+        "representative_title": a.title,
+        "summary": summary,
+        "importance": 5.0,
+    }
+
+
 async def summarize_cluster(
     articles: list[RawArticle],
 ) -> dict:
     """Summarize a cluster of related articles into a single summary."""
-    if not settings.gemini_api_key:
-        return {
-            "summary": articles[0].title,
-            "importance": 5.0,
-            "representative_title": articles[0].title,
-        }
+    if not articles:
+        return {"summary": "", "importance": 5.0, "representative_title": ""}
 
+    if not settings.gemini_api_key:
+        logger.warning("Gemini API key not set, using extractive fallback for summary")
+        return _extractive_fallback(articles)
+
+    # Enough text for the model to infer facts beyond the headline (RSS often repeats title in description).
+    chunk = 2200
     sources_text = "\n".join(
-        f"- [{a.source_name}] {a.title}\n  {a.content[:300]}" for a in articles[:8]
+        f"- [{a.source_name}] {a.title}\n  {a.content[:chunk]}" for a in articles[:8]
     )
 
-    prompt = f"""You are a news editor. Given these related articles about the same story, produce a concise summary.
+    prompt = f"""You are a news editor. Given these article(s) about the same story, write a substantive summary for a professional reader.
 
 ARTICLES:
 {sources_text}
 
+Requirements:
+- "representative_title": one clear, factual headline (not clickbait).
+- "summary": 4 to 7 sentences (or a short paragraph plus one bullet line if multiple distinct facts). Include who, what, when, where relevant, numbers, company or person names, and why it matters. Do not repeat the headline only; add information from the body text.
+- "importance": float 1-10 (10 = major industry or market-moving news).
+
 Respond with ONLY a JSON object:
 {{
-    "representative_title": "clear, factual headline for this story",
-    "summary": "2-3 sentence summary covering the key facts",
-    "importance": <float 1-10, where 10 is paradigm-shifting news>
+    "representative_title": "...",
+    "summary": "...",
+    "importance": <float>
 }}"""
 
     try:
@@ -103,11 +126,7 @@ Respond with ONLY a JSON object:
         return json.loads(text)
     except Exception as e:
         logger.error(f"Gemini summarization failed: {e}")
-        return {
-            "summary": articles[0].content[:200] if articles[0].content else articles[0].title,
-            "importance": 5.0,
-            "representative_title": articles[0].title,
-        }
+        return _extractive_fallback(articles)
 
 
 async def batch_score_importance(titles: list[str]) -> list[float]:

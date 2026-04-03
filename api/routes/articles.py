@@ -36,15 +36,18 @@ async def list_articles(
     return {"articles": articles, "count": len(articles)}
 
 
+@router.get("/cluster/{cluster_id}")
+async def get_cluster_articles(cluster_id: str, _auth: bool = Depends(verify_pin)):
+    articles = db.get_cluster_articles(cluster_id)
+    for row in articles:
+        if row.get("source_name") and not row.get("source"):
+            row["source"] = row["source_name"]
+    return {"articles": articles, "count": len(articles)}
+
+
 @router.get("/{article_id}")
 async def get_article(article_id: str, _auth: bool = Depends(verify_pin)):
     article = db.get_article_by_id(article_id)
     if not article:
         return {"error": "Article not found"}
     return article
-
-
-@router.get("/cluster/{cluster_id}")
-async def get_cluster_articles(cluster_id: str, _auth: bool = Depends(verify_pin)):
-    articles = db.get_cluster_articles(cluster_id)
-    return {"articles": articles, "count": len(articles)}

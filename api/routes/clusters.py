@@ -10,6 +10,16 @@ from personalization.engine import preference_engine
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
 
+def _cluster_with_aliases(row: dict) -> dict:
+    """Expose trust_level / source_count aliases for clients expecting Lovable-style field names."""
+    out = dict(row)
+    if "trust_rating" in out and "trust_level" not in out:
+        out["trust_level"] = out["trust_rating"]
+    if "article_count" in out and "source_count" not in out:
+        out["source_count"] = out["article_count"]
+    return out
+
+
 @router.get("/")
 async def list_clusters(
     category: Category | None = None,
@@ -25,4 +35,5 @@ async def list_clusters(
         if prefs:
             clusters = preference_engine.rerank_articles(clusters, prefs)
 
+    clusters = [_cluster_with_aliases(c) for c in clusters]
     return {"clusters": clusters, "count": len(clusters)}

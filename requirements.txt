@@ -15,6 +15,7 @@ google-generativeai
 discord.py
 python-telegram-bot
 resend
+bcrypt
 passlib[bcrypt]
 pydantic
 pydantic-settings

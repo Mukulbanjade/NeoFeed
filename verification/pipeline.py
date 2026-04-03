@@ -78,16 +78,9 @@ async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
             others = [a for a in cluster_group if a != representative]
             cluster_trust = await verify_claim(representative, others)
 
-        # ── Step 5: Summarize cluster ──
-        if len(cluster_group) > 1:
-            summary_data = await summarize_cluster(cluster_group)
-            stats["llm_calls"] += 1
-        else:
-            summary_data = {
-                "representative_title": cluster_group[0].title,
-                "summary": cluster_group[0].content[:300],
-                "importance": 5.0,
-            }
+        # ── Step 5: Summarize cluster (always — single-article clusters need LLM too) ──
+        summary_data = await summarize_cluster(cluster_group)
+        stats["llm_calls"] += 1
 
         # ── Step 6: Determine category ──
         categories = [a.category for a in cluster_group]

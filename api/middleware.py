@@ -9,7 +9,17 @@ from config import settings
 
 
 def _check_pin(pin: str, pin_hash: str) -> bool:
-    return _bcrypt.checkpw(pin.encode(), pin_hash.encode())
+    # #region agent log
+    import logging as _log
+    _dbg = _log.getLogger("neofeed.auth")
+    try:
+        result = _bcrypt.checkpw(pin.encode(), pin_hash.encode())
+        _dbg.info(f"checkpw ok, result={result}, hash_len={len(pin_hash)}, prefix={pin_hash[:7]}")
+        return result
+    except Exception as exc:
+        _dbg.error(f"checkpw CRASHED: {type(exc).__name__}: {exc}  hash_len={len(pin_hash)} prefix={pin_hash[:10]!r}")
+        raise
+    # #endregion
 
 
 def verify_pin(x_pin: str = Header(..., alias="X-Pin")) -> bool:
