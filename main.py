@@ -74,10 +74,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# allow_credentials=False so allow_origins=["*"] is valid with custom headers (X-Pin).
+# Browsers reject * + credentials=true; that broke Vercel → Render fetches.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

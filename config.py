@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     pin_hash: str = ""
 
+    # Comma-separated origins, or "*" for any. PIN auth uses X-Pin header only (no cookies),
+    # so credentials stay False and "*" works from browsers (Vercel, custom domains, localhost).
+    cors_origins: str = "*"
+
     scrape_interval_minutes: int = 30
     digest_hours: str = "8,20"
 
@@ -32,6 +36,13 @@ class Settings(BaseSettings):
     @property
     def digest_hour_list(self) -> list[int]:
         return [int(h.strip()) for h in self.digest_hours.split(",")]
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        raw = self.cors_origins.strip()
+        if not raw or raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 settings = Settings()
