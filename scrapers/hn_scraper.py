@@ -22,7 +22,9 @@ AI_KEYWORDS = [
     r"\bdeep learning\b", r"\bdiffusion\b", r"\bstable diffusion\b", r"\bmidjourney\b",
     r"\bcopilot\b", r"\bchatgpt\b", r"\blangchain\b", r"\bhugging face\b", r"\bmeta ai\b",
     r"\bllama\b", r"\bmistral\b", r"\btraining\b", r"\binference\b", r"\bagi\b",
-    r"\bfoundation model\b", r"\bgenerative\b", r"\bsora\b", r"\bgemma\b",
+    r"\bfoundation model\b", r"\bgenerative\b", r"\bsora\b", r"\bgemma\b", r"\bgithub\b",
+    r"\bsecurity\b", r"\bleak\b", r"\bsource code\b", r"\bbreach\b", r"\bexploit\b",
+    r"\bvulnerability\b", r"\bzero-day\b", r"\bmalware\b", r"\bransomware\b",
 ]
 
 CRYPTO_KEYWORDS = [
@@ -31,6 +33,13 @@ CRYPTO_KEYWORDS = [
     r"\bwallet\b", r"\bbinance\b", r"\bcoinbase\b", r"\bstablecoin\b",
     r"\bdao\b", r"\bairdrop\b", r"\bhalving\b", r"\blayer 2\b", r"\brollup\b",
     r"\bonchain\b", r"\bon-chain\b", r"\btokenized\b", r"\busdc\b", r"\busdt\b",
+    r"\bsecurity\b", r"\bleak\b", r"\bbreach\b", r"\bhack\b", r"\bexploit\b",
+]
+
+WAR_SECURITY_KEYWORDS = [
+    r"\bwar\b", r"\bconflict\b", r"\bmilitary\b", r"\bdrone\b", r"\bmissile\b",
+    r"\bceasefire\b", r"\bsanctions\b", r"\bnato\b", r"\bdefense\b", r"\bdefence\b",
+    r"\bcyberattack\b", r"\bcyber attack\b", r"\bstate actor\b", r"\bcritical infrastructure\b",
 ]
 
 
@@ -38,12 +47,15 @@ def _classify(title: str) -> Category | None:
     t = title.lower()
     is_ai = any(re.search(kw, t) for kw in AI_KEYWORDS)
     is_crypto = any(re.search(kw, t) for kw in CRYPTO_KEYWORDS)
+    is_war_security = any(re.search(kw, t) for kw in WAR_SECURITY_KEYWORDS)
     if is_ai and is_crypto:
         return Category.BOTH
     if is_ai:
         return Category.AI
     if is_crypto:
         return Category.CRYPTO
+    if is_war_security:
+        return Category.BOTH
     return None
 
 
@@ -56,7 +68,7 @@ class HackerNewsScraper(BaseScraper):
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(HN_TOP_URL)
-            story_ids = resp.json()[:max_stories * 3]
+            story_ids = resp.json()[:max_stories * 4]
 
             for sid in story_ids:
                 if len(articles) >= max_stories:

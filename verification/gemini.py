@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 import google.generativeai as genai
 
@@ -13,6 +14,7 @@ from database.models import RawArticle, TrustRating
 logger = logging.getLogger(__name__)
 
 _model = None
+_quota_blocked_until: datetime | None = None
 
 
 def _get_model():
@@ -23,6 +25,20 @@ def _get_model():
     return _model
 
 
+def _is_quota_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "429" in msg or "quota" in msg or "rate limit" in msg
+
+
+def _quota_block_active() -> bool:
+    return _quota_blocked_until is not None and datetime.now(timezone.utc) < _quota_blocked_until
+
+
+def _set_quota_block(seconds: int = 120) -> None:
+    global _quota_blocked_until
+    _quota_blocked_until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+
+
 async def verify_claim(
     article: RawArticle,
     corroborating: list[RawArticle] | None = None,
@@ -30,6 +46,8 @@ async def verify_claim(
     """Ask Gemini to verify a claim using available evidence."""
     if not settings.gemini_api_key:
         logger.warning("Gemini API key not set, skipping LLM verification")
+        return TrustRating.UNVERIFIED
+    if _quota_block_active():
         return TrustRating.UNVERIFIED
 
     corr_text = ""
@@ -65,6 +83,8 @@ Respond with ONLY a JSON object: {{"rating": "...", "reason": "one sentence expl
         return TrustRating(rating)
     except Exception as e:
         logger.error(f"Gemini verification failed: {e}")
+        if _is_quota_error(e):
+            _set_quota_block()
         return TrustRating.UNVERIFIED
 
 
@@ -93,6 +113,8 @@ async def summarize_cluster(
 
     if not settings.gemini_api_key:
         logger.warning("Gemini API key not set, using extractive fallback for summary")
+        return _extractive_fallback(articles)
+    if _quota_block_active():
         return _extractive_fallback(articles)
 
     # Enough text for the model to infer facts beyond the headline (RSS often repeats title in description).
@@ -126,6 +148,8 @@ Respond with ONLY a JSON object:
         return json.loads(text)
     except Exception as e:
         logger.error(f"Gemini summarization failed: {e}")
+        if _is_quota_error(e):
+            _set_quota_block()
         return _extractive_fallback(articles)
 
 

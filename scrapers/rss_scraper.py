@@ -23,6 +23,12 @@ RELEVANCE_PATTERNS = [
     r"\bmining\b", r"\bsolana\b", r"\bbinance\b", r"\bcoinbase\b",
     r"\bdata center\b", r"\bchip\b", r"\bgpu\b", r"\bsemiconductor\b",
     r"\brobot\b", r"\bautonomous\b", r"\bfoundation model\b",
+    r"\bwar\b", r"\bconflict\b", r"\bmilitary\b", r"\bmissile\b", r"\bdrone\b",
+    r"\bceasefire\b", r"\bsanctions\b", r"\bnato\b", r"\bdefense\b", r"\bdefence\b",
+    r"\bexplosion\b", r"\bstrike\b", r"\bfrontline\b", r"\bintelligence\b",
+    r"\bleak\b", r"\bsource code\b", r"\bbreach\b", r"\bexploit\b",
+    r"\bvulnerability\b", r"\bzero-day\b", r"\bransomware\b", r"\bmalware\b",
+    r"\bgithub\b", r"\bcritical infrastructure\b", r"\bstate actor\b",
 ]
 
 
@@ -38,6 +44,7 @@ class RssScraper(BaseScraper):
 
     def __init__(self, feeds: list[dict] | None = None):
         self.feeds = feeds or RSS_FEEDS + TWITTER_RSS_BRIDGES
+        self.entries_per_feed = 50
 
     async def scrape(self) -> list[RawArticle]:
         articles: list[RawArticle] = []
@@ -49,7 +56,7 @@ class RssScraper(BaseScraper):
                         logger.warning(f"RSS {feed_cfg['name']}: HTTP {resp.status_code}")
                         continue
                     parsed = feedparser.parse(resp.text)
-                    for entry in parsed.entries[:20]:
+                    for entry in parsed.entries[: self.entries_per_feed]:
                         article = self._entry_to_article(entry, feed_cfg)
                         if feed_cfg.get("needs_filter") and not _is_relevant(article.title, article.content):
                             continue

@@ -18,7 +18,7 @@ cp .env.example .env
 # Edit .env with your keys (see Setup below)
 
 # Generate a PIN hash
-python -c "from passlib.hash import bcrypt; print(bcrypt.hash('your-pin-here'))"
+python -c "import bcrypt; print(bcrypt.hashpw(b'your-pin-here', bcrypt.gensalt()).decode())"
 # Add the output to PIN_HASH in .env
 
 # Run the database schema
@@ -49,6 +49,7 @@ uvicorn main:app --reload --port 8000
 |---|---|---|
 | `GET` | `/` | Status |
 | `GET` | `/health` | Health check |
+| `GET` | `/admin/scrape-status` | Last scrape metadata (timestamps, stats, errors) |
 | `POST` | `/auth/verify` | Verify PIN |
 | `POST` | `/auth/setup` | Set/change PIN |
 | `GET` | `/articles/` | List articles (filterable) |
@@ -80,3 +81,16 @@ Sources → Scrapers → Verification Pipeline → Supabase
 ## Deployment
 
 Deploy backend on [Render](https://render.com) (free tier) using the included `render.yaml`. Frontend built separately with Lovable.
+
+### Keep News Fresh on Render Free Tier
+
+Render free instances can sleep when idle. To avoid stale news:
+
+1. Set external cron (e.g. cron-job.org, UptimeRobot, GitHub Actions schedule) every 10-15 minutes.
+2. Hit `POST https://<your-backend>/admin/scrape` with `X-Pin` header.
+3. Monitor `GET /admin/scrape-status` and `GET /health` for `last_scrape_completed_at`.
+
+Recommended env values:
+
+- `SCRAPE_INTERVAL_MINUTES=15`
+- `CORS_ORIGINS=*` (or explicit frontend URLs)

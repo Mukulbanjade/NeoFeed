@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from database.models import (
     Article, ArticleCluster, Category, RawArticle, TrustRating,
@@ -27,6 +28,58 @@ def _build_reliability_map() -> dict[str, float]:
 
 
 SOURCE_RELIABILITY = _build_reliability_map()
+MAX_LLM_SUMMARIES_PER_RUN = 20
+
+
+def _compute_recency_boost(cluster_group: list[RawArticle]) -> float:
+    """Returns 0.0-2.0 points based on newest article age."""
+    now = datetime.now(timezone.utc)
+    published = [a.published_at for a in cluster_group if a.published_at]
+    if not published:
+        return 0.2
+    newest = max(published)
+    age_hours = max(0.0, (now - newest).total_seconds() / 3600.0)
+    if age_hours <= 3:
+        return 2.0
+    if age_hours <= 12:
+        return 1.5
+    if age_hours <= 24:
+        return 1.0
+    if age_hours <= 72:
+        return 0.6
+    return 0.2
+
+
+def _final_importance(base_importance: float, cluster_group: list[RawArticle], cluster_trust: TrustRating) -> float:
+    """
+    Blend model score with corroboration, source reliability, recency, and engagement.
+    Keeps score bounded to [1, 10].
+    """
+    source_corroboration = min(2.0, 0.45 * (len(cluster_group) - 1))
+    reliability_avg = sum(SOURCE_RELIABILITY.get(a.source_name, 0.5) for a in cluster_group) / max(len(cluster_group), 1)
+    reliability_boost = (reliability_avg - 0.5) * 2.0  # approx -1..+1
+    engagement_boost = min(1.0, sum(max(a.engagement, 0) for a in cluster_group) / 800.0)
+    recency_boost = _compute_recency_boost(cluster_group)
+    trust_boost = {
+        TrustRating.VERIFIED: 0.6,
+        TrustRating.LIKELY_TRUE: 0.3,
+        TrustRating.UNVERIFIED: 0.0,
+        TrustRating.LIKELY_FALSE: -0.7,
+    }[cluster_trust]
+    score = base_importance + source_corroboration + reliability_boost + engagement_boost + recency_boost + trust_boost
+    return max(1.0, min(10.0, score))
+
+
+def _extractive_summary(cluster_group: list[RawArticle]) -> dict:
+    representative = max(cluster_group, key=lambda a: (a.engagement, len(a.content or "")))
+    body = (representative.content or "").strip()
+    snippet = body[:900] + ("…" if len(body) > 900 else "")
+    summary = f"{representative.title}\n\n{snippet}" if snippet else representative.title
+    return {
+        "representative_title": representative.title,
+        "summary": summary,
+        "importance": 5.0,
+    }
 
 
 async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
@@ -54,6 +107,7 @@ async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
 
     # ── Step 2: Cluster (Tier 1) ──
     clusters = cluster_articles(new_articles)
+    clusters.sort(key=lambda grp: max((a.engagement for a in grp), default=0), reverse=True)
     stats["clusters"] = len(clusters)
     logger.info(f"Formed {len(clusters)} clusters from {len(new_articles)} articles")
 
@@ -78,9 +132,18 @@ async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
             others = [a for a in cluster_group if a != representative]
             cluster_trust = await verify_claim(representative, others)
 
-        # ── Step 5: Summarize cluster (always — single-article clusters need LLM too) ──
-        summary_data = await summarize_cluster(cluster_group)
-        stats["llm_calls"] += 1
+        # ── Step 5: Summarize cluster with LLM budget control ──
+        should_llm_summarize = (
+            stats["llm_calls"] < MAX_LLM_SUMMARIES_PER_RUN
+            and (len(cluster_group) > 1 or max((a.engagement for a in cluster_group), default=0) >= 30)
+        )
+        if should_llm_summarize:
+            summary_data = await summarize_cluster(cluster_group)
+            stats["llm_calls"] += 1
+        else:
+            summary_data = _extractive_summary(cluster_group)
+        base_importance = float(summary_data.get("importance", 5.0))
+        cluster_importance = _final_importance(base_importance, cluster_group, cluster_trust)
 
         # ── Step 6: Determine category ──
         categories = [a.category for a in cluster_group]
@@ -96,7 +159,7 @@ async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
             representative_title=summary_data.get("representative_title", cluster_group[0].title),
             summary=summary_data.get("summary", ""),
             category=cluster_cat,
-            importance_score=float(summary_data.get("importance", 5.0)),
+            importance_score=cluster_importance,
             trust_rating=cluster_trust,
             article_count=len(cluster_group),
         ))
@@ -113,7 +176,7 @@ async def run_pipeline(raw_articles: list[RawArticle]) -> dict:
                 source_name=art.source_name,
                 source_type=art.source_type,
                 category=art.category,
-                importance_score=float(summary_data.get("importance", 5.0)),
+                importance_score=cluster_importance,
                 trust_rating=cluster_trust,
                 cluster_id=cluster_id,
                 raw_content=art.content[:5000],

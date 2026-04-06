@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from api.routes import articles, auth, clusters, votes, preferences
-from scheduler.jobs import scrape_and_process
+from scheduler.jobs import scrape_and_process, get_scrape_status
 from notifications.discord_bot import send_digest_to_discord
 from notifications.telegram_bot import send_digest_to_telegram
 from notifications.email_digest import send_email_digest
@@ -103,7 +103,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", **get_scrape_status()}
 
 
 # #region agent log — temporary diagnostic (remove after debugging)
@@ -135,6 +135,12 @@ async def trigger_scrape():
     """Manually trigger a scrape cycle."""
     asyncio.create_task(scrape_and_process())
     return {"message": "Scrape cycle started"}
+
+
+@app.get("/admin/scrape-status")
+async def scrape_status():
+    """Last known scrape execution metadata for uptime/cadence monitoring."""
+    return get_scrape_status()
 
 
 @app.post("/admin/digest")
