@@ -186,3 +186,49 @@ Respond with ONLY a JSON array of numbers, e.g. [7, 3, 8, ...]"""
         logger.error(f"Gemini batch scoring failed: {e}")
 
     return [5.0] * len(titles)
+
+
+async def summarize_feed_digest(category: str, clusters: list[dict]) -> str:
+    """Create one readable summary for a group of clusters."""
+    if not clusters:
+        return "No major updates in this category yet."
+
+    lines = []
+    for c in clusters[:20]:
+        title = (c.get("representative_title") or "").strip()
+        summary = (c.get("summary") or "").strip().replace("\n", " ")
+        if not title:
+            continue
+        lines.append(f"- {title}\n  {summary[:260]}")
+    source_text = "\n".join(lines).strip()
+    if not source_text:
+        return "No major updates in this category yet."
+
+    if not settings.gemini_api_key or _quota_block_active():
+        # Simple human-readable fallback.
+        bullets = [f"- {(c.get('representative_title') or '').strip()}" for c in clusters[:8] if c.get("representative_title")]
+        return "Quick roundup:\n" + "\n".join(bullets)
+
+    prompt = f"""You are a helpful news assistant. Summarize this {category.upper()} feed in a casual tone.
+
+INPUT CLUSTERS:
+{source_text}
+
+Requirements:
+- 6 to 10 short sentences total.
+- Start with one 1-sentence big-picture takeaway.
+- Then list key updates in plain language, prioritizing important items first.
+- Do not output HTML.
+- Keep it concise and readable.
+"""
+    try:
+        model = _get_model()
+        response = model.generate_content(prompt)
+        text = (response.text or "").strip()
+        return text.removeprefix("```").removeprefix("text").removesuffix("```").strip()
+    except Exception as e:
+        logger.error(f"Gemini feed digest failed: {e}")
+        if _is_quota_error(e):
+            _set_quota_block()
+        bullets = [f"- {(c.get('representative_title') or '').strip()}" for c in clusters[:8] if c.get("representative_title")]
+        return "Quick roundup:\n" + "\n".join(bullets)
