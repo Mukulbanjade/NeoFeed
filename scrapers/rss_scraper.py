@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import feedparser
 import httpx
+from bs4 import BeautifulSoup
 
 from database.models import Category, RawArticle
 from scrapers.base import BaseScraper
@@ -35,6 +36,14 @@ RELEVANCE_PATTERNS = [
 def _is_relevant(title: str, content: str) -> bool:
     text = f"{title} {content[:500]}".lower()
     return any(re.search(p, text) for p in RELEVANCE_PATTERNS)
+
+
+def _clean_html(text: str) -> str:
+    if not text:
+        return ""
+    # Convert rich RSS summary HTML into readable plain text.
+    plain = BeautifulSoup(text, "html.parser").get_text(" ", strip=True)
+    return re.sub(r"\s+", " ", plain).strip()
 
 
 class RssScraper(BaseScraper):
@@ -76,9 +85,9 @@ class RssScraper(BaseScraper):
 
         content = ""
         if hasattr(entry, "summary"):
-            content = entry.summary
+            content = _clean_html(entry.summary)
         elif hasattr(entry, "content") and entry.content:
-            content = entry.content[0].get("value", "")
+            content = _clean_html(entry.content[0].get("value", ""))
 
         source_type = "twitter" if "rsshub" in feed_cfg["url"] or "nitter" in feed_cfg["url"] else "rss"
 

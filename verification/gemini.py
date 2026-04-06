@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import google.generativeai as genai
+from bs4 import BeautifulSoup
 
 from config import settings
 from database.models import RawArticle, TrustRating
@@ -91,7 +93,8 @@ Respond with ONLY a JSON object: {{"rating": "...", "reason": "one sentence expl
 def _extractive_fallback(articles: list[RawArticle]) -> dict:
     """When Gemini is unavailable, return a longer extractive blurb than a bare title."""
     a = articles[0]
-    body = (a.content or "").strip()
+    body = BeautifulSoup((a.content or "").strip(), "html.parser").get_text(" ", strip=True)
+    body = re.sub(r"\s+", " ", body).strip()
     if body:
         snippet = body[:1200] + ("…" if len(body) > 1200 else "")
         summary = f"{a.title}\n\n{snippet}"
@@ -123,14 +126,15 @@ async def summarize_cluster(
         f"- [{a.source_name}] {a.title}\n  {a.content[:chunk]}" for a in articles[:8]
     )
 
-    prompt = f"""You are a news editor. Given these article(s) about the same story, write a substantive summary for a professional reader.
+    prompt = f"""You are a news explainer. Given these article(s) about the same story, write a clear, casual summary for regular readers.
 
 ARTICLES:
 {sources_text}
 
 Requirements:
 - "representative_title": one clear, factual headline (not clickbait).
-- "summary": 4 to 7 sentences (or a short paragraph plus one bullet line if multiple distinct facts). Include who, what, when, where relevant, numbers, company or person names, and why it matters. Do not repeat the headline only; add information from the body text.
+- "summary": 4 to 7 sentences in a casual, easy-to-read tone. Include who, what, when, where relevant, numbers, company or person names, and why it matters. Do not repeat the headline only; add information from the body text.
+- Avoid raw HTML tags. Output plain text only.
 - "importance": float 1-10 (10 = major industry or market-moving news).
 
 Respond with ONLY a JSON object:
