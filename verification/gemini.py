@@ -95,9 +95,12 @@ def _extractive_fallback(articles: list[RawArticle]) -> dict:
     a = articles[0]
     body = BeautifulSoup((a.content or "").strip(), "html.parser").get_text(" ", strip=True)
     body = re.sub(r"\s+", " ", body).strip()
+    title_norm = re.sub(r"\s+", " ", (a.title or "").strip()).lower()
+    if body and title_norm and body.lower().startswith(title_norm):
+        body = body[len(a.title):].lstrip(" .:-\n\t")
     if body:
         snippet = body[:1200] + ("…" if len(body) > 1200 else "")
-        summary = f"{a.title}\n\n{snippet}"
+        summary = snippet
     else:
         summary = a.title
     return {
