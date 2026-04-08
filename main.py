@@ -9,9 +9,10 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.middleware import verify_pin
 from config import settings
 from api.routes import articles, auth, clusters, votes, preferences
 from scheduler.jobs import scrape_and_process, get_scrape_status
@@ -106,45 +107,21 @@ async def health():
     return {"status": "ok", **get_scrape_status()}
 
 
-# #region agent log — temporary diagnostic (remove after debugging)
-@app.get("/debug/pin-check")
-async def debug_pin_check():
-    """Temporary endpoint to diagnose PIN_HASH issues on Render."""
-    import bcrypt as _bcrypt
-    ph = settings.pin_hash
-    info = {
-        "pin_hash_length": len(ph) if ph else 0,
-        "pin_hash_set": bool(ph),
-        "pin_hash_starts_with_dollar": ph.startswith("$") if ph else None,
-        "pin_hash_prefix": ph[:7] if ph and len(ph) > 7 else ph[:3] if ph else "",
-    }
-    if ph:
-        try:
-            result = _bcrypt.checkpw(b"5585", ph.encode())
-            info["checkpw_result"] = result
-            info["checkpw_error"] = None
-        except Exception as e:
-            info["checkpw_result"] = None
-            info["checkpw_error"] = f"{type(e).__name__}: {e}"
-    return info
-# #endregion
-
-
 @app.post("/admin/scrape")
-async def trigger_scrape():
-    """Manually trigger a scrape cycle."""
+async def trigger_scrape(_auth: bool = Depends(verify_pin)):
+    """Manually trigger a scrape cycle. Requires `X-Pin` when PIN_HASH is configured."""
     asyncio.create_task(scrape_and_process())
     return {"message": "Scrape cycle started"}
 
 
 @app.get("/admin/scrape-status")
-async def scrape_status():
-    """Last known scrape execution metadata for uptime/cadence monitoring."""
+async def scrape_status(_auth: bool = Depends(verify_pin)):
+    """Last known scrape execution metadata. Requires `X-Pin` when PIN_HASH is configured."""
     return get_scrape_status()
 
 
 @app.post("/admin/digest")
-async def trigger_digest():
-    """Manually trigger all digests."""
+async def trigger_digest(_auth: bool = Depends(verify_pin)):
+    """Manually trigger all digests. Requires `X-Pin` when PIN_HASH is configured."""
     asyncio.create_task(_send_all_digests())
     return {"message": "Digest delivery started"}

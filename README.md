@@ -49,7 +49,7 @@ uvicorn main:app --reload --port 8000
 |---|---|---|
 | `GET` | `/` | Status |
 | `GET` | `/health` | Health check |
-| `GET` | `/admin/scrape-status` | Last scrape metadata (timestamps, stats, errors) |
+| `GET` | `/admin/scrape-status` | Last scrape metadata (requires `X-Pin` when PIN is configured) |
 | `POST` | `/auth/verify` | Verify PIN |
 | `POST` | `/auth/setup` | Set/change PIN |
 | `GET` | `/articles/` | List articles (filterable) |
@@ -63,7 +63,7 @@ uvicorn main:app --reload --port 8000
 | `POST` | `/admin/scrape` | Trigger manual scrape |
 | `POST` | `/admin/digest` | Trigger manual digest |
 
-All protected endpoints require `X-Pin` header.
+All `/articles/*`, `/clusters/*`, `/votes/*`, `/preferences/*`, and `/admin/*` routes require the `X-Pin` header when `PIN_HASH` is set. Public: `/`, `/health`, `/docs`, `/auth/verify`, `/auth/setup`.
 
 ## Architecture
 
@@ -74,13 +74,13 @@ Sources → Scrapers → Verification Pipeline → Supabase
                      (Tier 3: Gemini — only when needed)
                               ↓
                          FastAPI REST API
-                     ↓        ↓        ↓        ↓
-                  Lovable  Discord  Telegram   Email
+                     ↓        ↓        ↓                             ↓
+              Web (React/Vite)  Discord  Telegram   Email
 ```
 
 ## Deployment
 
-Deploy backend on [Render](https://render.com) (free tier) using the included `render.yaml`. Frontend built separately with Lovable.
+Deploy backend on [Render](https://render.com) (free tier) using the included `render.yaml`. Frontend: React + Vite (e.g. [Vercel](https://vercel.com)); repo [NeoFeedFrontend](https://github.com/Mukulbanjade/NeoFeedFrontend).
 
 ### Keep News Fresh on Render Free Tier
 
@@ -88,7 +88,7 @@ Render free instances can sleep when idle. To avoid stale news:
 
 1. Set external cron (e.g. cron-job.org, UptimeRobot, GitHub Actions schedule) every 10-15 minutes.
 2. Hit `POST https://<your-backend>/admin/scrape` with `X-Pin` header.
-3. Monitor `GET /admin/scrape-status` and `GET /health` for `last_scrape_completed_at`.
+3. Monitor `GET /health` (no PIN) for uptime, or `GET /admin/scrape-status` with `X-Pin` for scrape metadata.
 
 Recommended env values:
 
