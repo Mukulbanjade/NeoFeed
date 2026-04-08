@@ -17,9 +17,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your keys (see Setup below)
 
-# Generate a PIN hash
-python -c "import bcrypt; print(bcrypt.hashpw(b'your-pin-here', bcrypt.gensalt()).decode())"
-# Add the output to PIN_HASH in .env
+# Generate a bcrypt hash for your PIN (salt changes each run — always paste the new line into .env)
+# Default app PIN is 1234 (matches NeoFeedFrontend demo/offline fallback); use another PIN in production if you prefer.
+python -c "import bcrypt; print(bcrypt.hashpw(b'1234', bcrypt.gensalt()).decode())"
+# Add the output to PIN_HASH in .env (Render: set PIN_HASH to this value, not the raw digits)
 
 # Run the database schema
 # Copy database/schema.sql → Supabase SQL Editor → Run

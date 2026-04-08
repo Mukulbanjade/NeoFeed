@@ -32,6 +32,7 @@ services:
         sync: false
       - key: EMAIL_TO
         sync: false
+      # Bcrypt hash of PIN (e.g. hash of "1234"); not the plain PIN. Sync from Render dashboard.
       - key: PIN_HASH
         sync: false
       - key: CORS_ORIGINS
