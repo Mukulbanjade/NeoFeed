@@ -17,6 +17,7 @@ def _is_bcrypt_hash(value: str) -> bool:
 
 
 def _check_pin(pin: str, pin_hash: str) -> bool:
+    # #region agent log
     if not _is_bcrypt_hash(pin_hash):
         _logger.warning(
             "PIN_HASH is not a valid bcrypt hash (len=%d). "
@@ -28,14 +29,17 @@ def _check_pin(pin: str, pin_hash: str) -> bool:
     try:
         return _bcrypt.checkpw(pin.encode(), pin_hash.encode())
     except Exception as exc:
-        _logger.error("checkpw failed: %s: %s", type(exc).__name__, exc)
+        _logger.error(f"checkpw failed: {type(exc).__name__}: {exc}")
         return pin == pin_hash
+    # #endregion
 
 
-def verify_pin(x_pin: str = Header(..., alias="X-Pin")) -> bool:
+def verify_pin(x_pin: str | None = Header(None, alias="X-Pin")) -> bool:
     if not settings.pin_hash:
         return True
-    if not _check_pin(x_pin, settings.pin_hash):
+    if x_pin is None or not str(x_pin).strip():
+        raise HTTPException(status_code=401, detail="PIN required (X-Pin header)")
+    if not _check_pin(x_pin.strip(), settings.pin_hash):
         raise HTTPException(status_code=401, detail="Invalid PIN")
     return True
 
