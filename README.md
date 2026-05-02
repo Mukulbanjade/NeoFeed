@@ -2,96 +2,105 @@
 
 AI & Crypto News Aggregator with Trust Verification.
 
-Scrapes news from RSS feeds, Reddit, Hacker News, and Twitter (via Nitter bridges), cross-verifies claims using a 3-tier pipeline (TF-IDF clustering → heuristics → Gemini LLM), and delivers curated feeds via a web dashboard, Discord, Telegram, and email digests.
+Scrapes news from RSS feeds, Reddit, Hacker News, and Twitter-style bridges; runs a verification pipeline (clustering → heuristics → optional Gemini); stores data in Supabase; serves a REST API consumed by [**NeoFeedFrontend**](https://github.com/Mukulbanjade/NeoFeedFrontend) on Vercel, plus optional Discord/Telegram/email digests.
+
+## Pipeline overview
+
+```mermaid
+flowchart LR
+  subgraph ingest [NeoFeed service]
+    S[Scheduler]
+    Sc[RSS Reddit HN]
+    P[pipeline.run_pipeline]
+    DB[(Supabase)]
+    API[FastAPI routes]
+    S --> Sc --> P --> DB
+    DB --> API
+  end
+  SPA[NeoFeedFrontend] -->|"HTTPS fetch X-Pin"| API
+```
+
+1. **`scrape_and_process`** ([`scheduler/jobs.py`](scheduler/jobs.py)) runs on an interval + once at startup ([`main.py`](main.py)).
+2. Scrapers produce **raw articles**.
+3. **`run_pipeline`** ([`verification/pipeline.py`](verification/pipeline.py)) clusters and scores articles, persists **articles/clusters**.
+4. **FastAPI** exposes **`/clusters`**, **`/articles`**, **`/auth/verify`**, etc. Protected routes expect **`X-Pin`** when `PIN_HASH` is configured ([`api/middleware.py`](api/middleware.py)).
+5. **`GET /health`** includes **scrape metadata** (`last_scrape_success`, `last_scrape_error`) — scrape failures explain **missing fresh data**, not necessarily “API down”.
+
+## Failure map (what to verify)
+
+| Symptom | Check |
+|---------|--------|
+| UI shows **Failed to fetch** | Browser cannot complete HTTP — wrong API URL (`https`), blockers, TLS. Not the same as “Invalid PIN”. |
+| **Invalid PIN** / **PIN required** | Render **`PIN_HASH`** must match bcrypt (or plaintext fallback) for the PIN you type. |
+| **Empty clusters** though API works | Scraping failures in `/health` or filters; clusters still served from DB if present |
+| Frontend never updates | Backend OK but **Vercel deploy failed** (see frontend repo README) |
 
 ## Quick Start
 
 ```bash
-# Clone and install
 cd NeoFeed
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Configure
 cp .env.example .env
-# Edit .env with your keys (see Setup below)
+# Edit .env — see Required Keys below
 
-# Generate a bcrypt hash for your PIN (salt changes each run — always paste the new line into .env)
-# Default app PIN is 1234 (matches NeoFeedFrontend demo/offline fallback); use another PIN in production if you prefer.
-python -c "import bcrypt; print(bcrypt.hashpw(b'1234', bcrypt.gensalt()).decode())"
-# Add the output to PIN_HASH in .env (Render: set PIN_HASH to this value, not the raw digits)
+python -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_NUMERIC_PIN', bcrypt.gensalt()).decode())"
+# Put output in PIN_HASH in .env (Render: Environment → PIN_HASH)
 
-# Run the database schema
-# Copy database/schema.sql → Supabase SQL Editor → Run
+# Run database/schema.sql in Supabase SQL editor
 
-# Start
 uvicorn main:app --reload --port 8000
 ```
 
-## Setup
+### Render checklist (authentication)
 
-### Required Keys
+1. **`PIN_HASH`** contains a **full bcrypt `$2b$...` hash** generated for your chosen PIN — not the naked digits unless you intentionally use plaintext fallback (`_check_pin` in [`api/middleware.py`](api/middleware.py)).
+2. After changing `PIN_HASH`, **redeploy** the service.
+3. Test: `curl -s -X POST https://<your-host>/auth/verify -H "Content-Type: application/json" -d '{"pin":"YOUR_PIN"}'`
+
+### Operational checks
+
+- **`GET /health`** — service up + last scrape/error fields ([`scheduler/jobs.py`](scheduler/jobs.py) exposes state via [`get_scrape_status`](scheduler/jobs.py)).
+- **CORS:** [`config.py`](config.py) `cors_origins` defaults to `*` (with `credentials=False`) so SPA + `X-Pin` works from Vercel or custom domains.
+
+## Setup — required keys
 
 | Key | Where to get it |
 |---|---|
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → Settings → API |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) → Get API Key |
-| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | [reddit.com/prefs/apps](https://reddit.com/prefs/apps) → Create script app |
-| `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers) → New App → Bot |
-| `DISCORD_CHANNEL_ID` | Enable Developer Mode in Discord → Right-click channel → Copy ID |
-| `TELEGRAM_BOT_TOKEN` | Message [@BotFather](https://t.me/BotFather) on Telegram → /newbot |
-| `TELEGRAM_CHAT_ID` | Message [@userinfobot](https://t.me/userinfobot) on Telegram |
-| `RESEND_API_KEY` | [resend.com](https://resend.com) → API Keys |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | [reddit.com/prefs/apps](https://reddit.com/prefs/apps) |
+| Discord / Telegram / Resend keys | Provider dashboards |
 
-### API Endpoints
+## API endpoints
 
-| Method | Endpoint | Description |
+| Method | Endpoint | Notes |
 |---|---|---|
-| `GET` | `/` | Status |
-| `GET` | `/health` | Health check |
-| `GET` | `/admin/scrape-status` | Last scrape metadata (requires `X-Pin` when PIN is configured) |
-| `POST` | `/auth/verify` | Verify PIN |
-| `POST` | `/auth/setup` | Set/change PIN |
-| `GET` | `/articles/` | List articles (filterable) |
-| `GET` | `/articles/{id}` | Single article |
-| `GET` | `/articles/cluster/{id}` | Articles in a cluster |
-| `GET` | `/clusters/` | List clusters |
-| `POST` | `/votes/` | Cast upvote/downvote |
-| `GET` | `/votes/` | List votes |
-| `GET` | `/preferences/` | Get preferences |
-| `POST` | `/preferences/rebuild` | Rebuild preferences |
-| `POST` | `/admin/scrape` | Trigger manual scrape |
-| `POST` | `/admin/digest` | Trigger manual digest |
+| `GET` | `/` | Public status |
+| `GET` | `/health` | Public; includes scrape timestamps/errors |
+| `POST` | `/auth/verify` | Body `{ "pin": "..." }` — verify before SPA stores PIN |
+| `POST` | `/auth/setup` | Returns bcrypt hash guidance |
+| `GET` | `/clusters/` | Protected: `X-Pin` |
+| `GET` | `/clusters/summary` | Protected: `X-Pin` |
+| `POST` | `/admin/scrape` | Manual scrape |
+| `GET` | `/admin/scrape-status` | Metadata |
+| `POST` | `/admin/digest` | Manual digest |
 
-All `/articles/*`, `/clusters/*`, `/votes/*`, `/preferences/*`, and `/admin/*` routes require the `X-Pin` header when `PIN_HASH` is set. Public: `/`, `/health`, `/docs`, `/auth/verify`, `/auth/setup`.
-
-## Architecture
-
-```
-Sources → Scrapers → Verification Pipeline → Supabase
-                     (Tier 1: TF-IDF Clustering)
-                     (Tier 2: Heuristics)
-                     (Tier 3: Gemini — only when needed)
-                              ↓
-                         FastAPI REST API
-                     ↓        ↓        ↓                             ↓
-              Web (React/Vite)  Discord  Telegram   Email
-```
+Articles, votes, preferences routes are protected similarly — see [`api/routes/`](api/routes/).
 
 ## Deployment
 
-Deploy backend on [Render](https://render.com) (free tier) using the included `render.yaml`. Frontend: React + Vite (e.g. [Vercel](https://vercel.com)); repo [NeoFeedFrontend](https://github.com/Mukulbanjade/NeoFeedFrontend).
+- Backend: **[Render](https://render.com)** using [`render.yaml`](render.yaml) (Python).
+- Frontend: **[Vercel — NeoFeedFrontend](https://github.com/Mukulbanjade/NeoFeedFrontend)**.
 
-### Keep News Fresh on Render Free Tier
+### Cold start / scraping on free tier
 
-Render free instances can sleep when idle. To avoid stale news:
+1. Cron `POST .../admin/scrape` with `X-Pin` every ~10–15 minutes (wake + ingest).
+2. **`GET /health`** is public (`last_scrape_completed_at`, `last_scrape_error`). **`GET /admin/scrape-status`** requires `X-Pin` — use it only from trusted jobs with PIN.
 
-1. Set external cron (e.g. cron-job.org, UptimeRobot, GitHub Actions schedule) every 10-15 minutes.
-2. Hit `POST https://<your-backend>/admin/scrape` with `X-Pin` header.
-3. Monitor `GET /health` (no PIN) for uptime, or `GET /admin/scrape-status` with `X-Pin` for scrape metadata.
-
-Recommended env values:
+Suggested env:
 
 - `SCRAPE_INTERVAL_MINUTES=15`
-- `CORS_ORIGINS=*` (or explicit frontend URLs)
+- `CORS_ORIGINS=*` — or comma-separated frontend origins

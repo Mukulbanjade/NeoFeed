@@ -109,19 +109,19 @@ async def health():
 
 @app.post("/admin/scrape")
 async def trigger_scrape(_auth: bool = Depends(verify_pin)):
-    """Manually trigger a scrape cycle. Requires `X-Pin` when PIN_HASH is configured."""
+    """Manually trigger a scrape cycle. Requires `X-Pin` when PIN_HASH is set."""
     asyncio.create_task(scrape_and_process())
     return {"message": "Scrape cycle started"}
 
 
 @app.get("/admin/scrape-status")
 async def scrape_status(_auth: bool = Depends(verify_pin)):
-    """Last known scrape execution metadata. Requires `X-Pin` when PIN_HASH is configured."""
+    """Last known scrape execution metadata for uptime/cadence monitoring."""
     return get_scrape_status()
 
 
 @app.post("/admin/digest")
 async def trigger_digest(_auth: bool = Depends(verify_pin)):
-    """Manually trigger all digests. Requires `X-Pin` when PIN_HASH is configured."""
+    """Manually trigger all digests."""
     asyncio.create_task(_send_all_digests())
     return {"message": "Digest delivery started"}
